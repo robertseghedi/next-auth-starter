@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { requireGuest } from "@/lib/auth-helpers";
 import {
   Card,
@@ -21,7 +22,9 @@ export default async function ResetPasswordPage() {
           <CardDescription>Enter your new password</CardDescription>
         </CardHeader>
         <CardContent>
-          <ResetPasswordForm />
+          <Suspense>
+            <ResetPasswordForm />
+          </Suspense>
         </CardContent>
       </Card>
     </div>

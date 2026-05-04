@@ -26,7 +26,7 @@ export function PasskeyManage() {
 
   async function loadPasskeys() {
     const { data } = await authClient.passkey.listUserPasskeys();
-    setPasskeys((data as Passkey[]) ?? []);
+    setPasskeys((data as unknown as Passkey[]) ?? []);
     setLoading(false);
   }
 
