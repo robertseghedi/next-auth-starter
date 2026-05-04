@@ -81,6 +81,16 @@ export default async function HomePage() {
               {authConfig.plugins.openAPI.enabled && <li>OpenAPI (docs)</li>}
             </ul>
           </div>
+          <Separator />
+
+          <div className="flex justify-center gap-4 text-xs text-muted-foreground">
+            <a href="https://www.peal.dev/privacy" className="hover:underline">
+              Privacy Policy
+            </a>
+            <a href="https://www.peal.dev/terms" className="hover:underline">
+              Terms of Service
+            </a>
+          </div>
         </CardContent>
       </Card>
     </div>
