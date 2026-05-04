@@ -64,21 +64,34 @@ cp .env.example .env.local
 Edit `.env.local` with your values:
 
 ```env
-# Required
-DATABASE_URL="postgresql://..."
-BETTER_AUTH_SECRET="$(openssl rand -base64 32)"
-BETTER_AUTH_URL="http://localhost:3000"
-NEXT_PUBLIC_APP_URL="http://localhost:3000"
+# ─── Database (Neon Postgres) ─────────────────────────────────────
+DATABASE_URL="postgresql://user:password@host/database?sslmode=require"
+DATABASE_URL_UNPOOLED="postgresql://user:password@host/database?sslmode=require"
 
-# Optional — enable features by adding keys
+# ─── Better Auth ──────────────────────────────────────────────────
+# Generate with: openssl rand -base64 32
+BETTER_AUTH_SECRET="your-secret-at-least-32-chars-long-here"
+BETTER_AUTH_URL="http://localhost:3000"
+
+# ─── OAuth: Google (optional — leave empty to disable) ────────────
 GOOGLE_CLIENT_ID=""
 GOOGLE_CLIENT_SECRET=""
+
+# ─── OAuth: GitHub (optional — leave empty to disable) ────────────
 GITHUB_CLIENT_ID=""
 GITHUB_CLIENT_SECRET=""
+
+# ─── Email / Resend ──────────
 RESEND_API_KEY=""
-EMAIL_FROM="App Name <noreply@yourdomain.com>"
+EMAIL_FROM=""
+
+# ─── Captcha / Cloudflare Turnstile (optional — leave empty to disable) ─
+# Get keys at: https://dash.cloudflare.com/?to=/:account/turnstile
 TURNSTILE_SECRET_KEY=""
 NEXT_PUBLIC_TURNSTILE_SITE_KEY=""
+
+# ─── App ──────────────────────────────────────────────────────────
+NEXT_PUBLIC_APP_URL="http://localhost:3000"
 ```
 
 ### 3. Set up the database
