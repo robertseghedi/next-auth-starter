@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import { getSession } from "@/lib/auth-helpers";
 import { authConfig } from "@/auth.config";
@@ -12,6 +13,13 @@ export default async function HomePage() {
     <div className="flex min-h-screen items-center justify-center p-4">
       <Card className="w-full max-w-md">
         <CardHeader>
+          <Image
+            src="/rounded.png"
+            alt="Logo"
+            width={48}
+            height={48}
+            className="mb-2"
+          />
           <CardTitle className="text-xl">Better Auth Starter</CardTitle>
           <CardDescription>
             by peal.dev — Next.js 16 + Better Auth + Drizzle ORM + Neon Postgres
