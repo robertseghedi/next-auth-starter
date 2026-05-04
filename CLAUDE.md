@@ -1,716 +1,273 @@
-# CLAUDE.md — Auth Starter Implementation Guide
+# CLAUDE.md — Auth Starter Reference
 
-This file is the source of truth for building a production-grade authentication starter with **Better Auth + Drizzle ORM + Neon Postgres** in a Next.js 15 (App Router) project.
-
-The architecture is designed around a single principle: **everything related to auth must be controllable from one central file — `auth.config.ts`**. Routes, providers, sessions, cookies, redirects, password rules, OAuth scopes, email templates — all flow from this config. No magic strings scattered across the codebase.
+This is an already-built, production-ready Next.js 16 authentication starter. **Do not rebuild it from scratch.** This file tells you how the codebase works so you can extend it correctly.
 
 ---
 
-## Tech stack (locked decisions)
+## Core principle
 
-- **Framework**: Next.js 15+ (App Router, Server Components, Server Actions)
-- **Auth library**: `better-auth` (latest)
-- **ORM**: `drizzle-orm` + `drizzle-kit`
-- **Database**: Neon Postgres (HTTP driver `@neondatabase/serverless`)
-- **Env validation**: `@t3-oss/env-nextjs` + `zod`
-- **Validation**: `zod`
-- **TypeScript**: strict mode, no `any`, no `// @ts-ignore`
-- **Package manager**: respect whatever the project uses (`bun`, `pnpm`, `npm`)
+**`src/auth.config.ts` is the single source of truth** for all auth behavior. Routes, plugins, session/cookie settings, social providers, and feature toggles all live here. Every other auth file reads from this config. When the user wants to change auth behavior, the answer is almost always "edit `auth.config.ts`".
+
+---
+
+## Tech stack
+
+- **Framework**: Next.js 16 (App Router, Server Components, `proxy.ts` not `middleware.ts`)
+- **Auth**: Better Auth (with plugins)
+- **ORM**: Drizzle ORM + Neon Postgres (HTTP driver)
+- **Env**: T3 Env (`@t3-oss/env-nextjs`) + Zod
+- **UI**: shadcn/ui (radix-luma style) + Tailwind CSS + Framer Motion
+- **Email**: Resend + React Email templates
+- **Captcha**: Cloudflare Turnstile
+- **Package manager**: bun
 
 ---
 
 ## Non-negotiable rules
 
-1. **`auth.config.ts` is the single source of truth.** Any auth-related constant, route, scope, duration, or feature flag goes here. Never hardcode `"/login"` or `60 * 60 * 24 * 7` anywhere else.
-2. **`import "server-only"`** must appear at the top of every file that touches the DB client, the auth instance, or secrets. No exceptions.
-3. **Env vars are validated.** If a var is missing or malformed, the app must fail to start, not fail at runtime.
-4. **No raw SQL in app code.** Everything goes through Drizzle.
-5. **Schema types come from `$inferSelect` / `$inferInsert`.** Never write a `User` interface by hand.
-6. **Migrations are committed.** `drizzle-kit push` is forbidden outside local dev.
-7. **No client-side secrets.** The Better Auth client (`auth-client.ts`) only knows the base URL.
+1. **`auth.config.ts` is the single source of truth.** Never hardcode `"/sign-in"`, `60 * 60 * 24 * 7`, or feature flags anywhere else.
+2. **Two config files exist:**
+   - `src/auth.config.ts` — shared between server and client. Must NOT import `env.ts`. Uses only `process.env.NEXT_PUBLIC_*` and `process.env.NODE_ENV`.
+   - `src/auth.config.server.ts` — server-only (`import "server-only"`). Contains secrets, OAuth credentials, email config, passkey config, captcha secret.
+3. **`import "server-only"`** must appear at the top of: `auth.ts`, `auth.config.server.ts`, `auth-helpers.ts`, `email.ts`, `db/index.ts`.
+4. **Pages are Server Components.** Only leaf interactive components (forms, buttons) use `"use client"`.
+5. **No raw SQL.** Everything goes through Drizzle.
+6. **Schema types come from `$inferSelect` / `$inferInsert`.** Extended user fields are typed in `src/lib/types.ts` (`SessionUser`).
+7. **No client-side secrets.** The auth client (`auth-client.ts`) only knows the base URL.
+8. **`nextCookies()` must be the LAST plugin** in the Better Auth plugins array.
+9. **`bun` is the package manager.** Not npm, not pnpm.
 
 ---
 
-## Project structure
-
-Build the project to match this layout exactly. Create directories that don't exist.
+## File map
 
 ```
 src/
+├── auth.config.ts                  # Shared config (routes, toggles, plugins, session, cookies)
+├── auth.config.server.ts           # Server-only config (secrets, OAuth creds, email, passkey, captcha)
+│
 ├── app/
-│   ├── (auth)/
-│   │   ├── sign-in/page.tsx
-│   │   ├── sign-up/page.tsx
+│   ├── page.tsx                    # Landing page (shows auth status + active plugins)
+│   ├── layout.tsx                  # Root layout
+│   ├── (auth)/                     # Auth pages — all use requireGuest()
+│   │   ├── sign-in/page.tsx        # → <AuthCard /> (tabbed sign-in/sign-up)
+│   │   ├── sign-up/page.tsx        # → <AuthCard /> (same component, different tab)
 │   │   ├── forgot-password/page.tsx
-│   │   └── reset-password/page.tsx
+│   │   ├── reset-password/page.tsx
+│   │   └── two-factor/page.tsx     # 2FA verification during sign-in
 │   ├── (app)/
-│   │   └── dashboard/page.tsx        # protected example
-│   ├── api/
-│   │   └── auth/
-│   │       └── [...all]/route.ts     # Better Auth handler
-│   └── layout.tsx
+│   │   └── dashboard/page.tsx      # Protected — shows security settings
+│   └── api/auth/[...all]/route.ts  # Better Auth catch-all handler
 │
 ├── lib/
-│   ├── env.ts                        # T3 env validation
-│   ├── auth.ts                       # Better Auth server instance
-│   ├── auth-client.ts                # Better Auth React client
-│   └── auth-helpers.ts               # getSession, requireSession, etc.
-│
-├── auth.config.ts                    # ⭐ CENTRAL CONFIG — everything auth-related
+│   ├── env.ts                      # T3 Env validation (all env vars defined here)
+│   ├── auth.ts                     # Better Auth server instance (consumes both configs)
+│   ├── auth-client.ts              # Better Auth React client + client plugins
+│   ├── auth-helpers.ts             # getSession(), requireSession(), requireGuest()
+│   ├── email.ts                    # Resend sender (sendMagicLinkEmail, sendResetPasswordEmail, sendOTPEmail)
+│   ├── emails/                     # React Email templates
+│   │   ├── magic-link-email.tsx
+│   │   ├── reset-password-email.tsx
+│   │   └── otp-email.tsx
+│   └── types.ts                    # SessionUser type (extends Better Auth user with plugin fields)
 │
 ├── db/
-│   ├── index.ts                      # Drizzle client (server-only)
-│   ├── schema/
-│   │   ├── index.ts                  # barrel export
-│   │   ├── _shared.ts                # timestamps, id helpers
-│   │   └── auth.ts                   # users, sessions, accounts, verifications
-│   └── relations.ts
+│   ├── index.ts                    # Drizzle client (server-only, Neon HTTP)
+│   └── schema/
+│       ├── auth.ts                 # All tables: user, session, account, verification, twoFactor, passkey
+│       └── index.ts                # Barrel export
 │
-├── components/
-│   └── auth/
-│       ├── sign-in-form.tsx
-│       ├── sign-up-form.tsx
-│       └── sign-out-button.tsx
+├── components/auth/                # All auth UI components ("use client")
+│   ├── auth-card.tsx               # Tabbed Sign In / Sign Up with Framer Motion animations
+│   ├── auth-background.tsx         # Dot grid SVG background for auth pages
+│   ├── sign-in-form.tsx            # Method picker → email/password, magic link, email OTP, phone, passkey
+│   ├── sign-up-form.tsx            # Email/password + social providers
+│   ├── sign-out-button.tsx
+│   ├── forgot-password-form.tsx
+│   ├── reset-password-form.tsx
+│   ├── magic-link-form.tsx
+│   ├── email-otp-form.tsx          # Two-step: enter email → enter 6-digit code
+│   ├── phone-sign-in-form.tsx      # Two-step: enter phone → enter SMS code
+│   ├── phone-link.tsx              # Link/change phone number from dashboard (dialog)
+│   ├── two-factor-setup.tsx        # Enable/disable 2FA (multi-step dialog with QR code)
+│   ├── two-factor-verify-form.tsx  # TOTP code + backup code input
+│   ├── passkey-manage.tsx          # Register/list/delete passkeys
+│   ├── captcha.tsx                 # Cloudflare Turnstile widget (invisible mode)
+│   └── social-icons.tsx            # Google/GitHub SVG icons (shared)
 │
-├── middleware.ts                     # route protection driven by auth.config.ts
-└── drizzle/                          # generated migrations (committed)
-
-drizzle.config.ts
-.env.local
-.env.example
+├── hooks/
+│   └── use-captcha.ts              # Captcha token state + fetchOptions headers
+│
+└── proxy.ts                        # Route protection (Next.js 16 — NOT middleware.ts)
 ```
 
 ---
 
-## Step 1 — Dependencies
+## How auth.config.ts works
 
-Install in this order:
+This file is imported by BOTH server and client code. It must never import `env.ts` (which contains server secrets). It uses `process.env.NEXT_PUBLIC_*` for values that need to be on the client.
 
-```bash
-# Core
-<pkg> add better-auth drizzle-orm @neondatabase/serverless
+### Key sections:
+- **`appName`** / **`baseUrl`** — app identity
+- **`routes`** — all auth route paths + redirect targets + legal page links
+- **`protection`** — arrays of path prefixes for protected and public-auth routes
+- **`emailAndPassword`** — toggle, password rules, auto sign-in
+- **`socialProviders`** — `{ google: { enabled: true }, github: { enabled: true } }` (UI toggle only, credentials are in `auth.config.server.ts`)
+- **`plugins`** — each has an `enabled` boolean. Some have extra config (e.g. `admin.defaultRole`).
+- **`session`** — expiresIn, updateAge, cookieCache
+- **`cookies`** — prefix, secure, sameSite
+- **`rateLimit`** — enabled in production only
 
-# Env + validation
-<pkg> add @t3-oss/env-nextjs zod
-
-# Dev
-<pkg> add -D drizzle-kit @types/node tsx
-```
-
-Replace `<pkg>` with the project's package manager.
-
----
-
-## Step 2 — Environment validation (`src/lib/env.ts`)
-
-```ts
-import { createEnv } from "@t3-oss/env-nextjs";
-import { z } from "zod";
-
-export const env = createEnv({
-  server: {
-    NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
-
-    // Database
-    DATABASE_URL: z.string().url(),
-    DATABASE_URL_UNPOOLED: z.string().url().optional(), // for migrations
-
-    // Better Auth
-    BETTER_AUTH_SECRET: z.string().min(32, "Must be at least 32 chars (run: openssl rand -base64 32)"),
-    BETTER_AUTH_URL: z.string().url(),
-
-    // OAuth — Google
-    GOOGLE_CLIENT_ID: z.string().optional(),
-    GOOGLE_CLIENT_SECRET: z.string().optional(),
-
-    // OAuth — GitHub
-    GITHUB_CLIENT_ID: z.string().optional(),
-    GITHUB_CLIENT_SECRET: z.string().optional(),
-
-    // Email (Resend)
-    RESEND_API_KEY: z.string().optional(),
-    EMAIL_FROM: z.string().email().optional(),
-  },
-  client: {
-    NEXT_PUBLIC_APP_URL: z.string().url(),
-  },
-  runtimeEnv: {
-    NODE_ENV: process.env.NODE_ENV,
-    DATABASE_URL: process.env.DATABASE_URL,
-    DATABASE_URL_UNPOOLED: process.env.DATABASE_URL_UNPOOLED,
-    BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET,
-    BETTER_AUTH_URL: process.env.BETTER_AUTH_URL,
-    GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
-    GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
-    GITHUB_CLIENT_ID: process.env.GITHUB_CLIENT_ID,
-    GITHUB_CLIENT_SECRET: process.env.GITHUB_CLIENT_SECRET,
-    RESEND_API_KEY: process.env.RESEND_API_KEY,
-    EMAIL_FROM: process.env.EMAIL_FROM,
-    NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
-  },
-  emptyStringAsUndefined: true,
-});
-```
-
-Also create `.env.example` listing every required variable with safe placeholder values.
+### Social providers hydration note
+Social provider `enabled` flags are static booleans, NOT derived from `process.env.GOOGLE_CLIENT_ID`. This is because server-only env vars aren't available on the client, which causes hydration mismatch. Set them to `true`/`false` manually.
 
 ---
 
-## Step 3 — The central `auth.config.ts` (⭐ CORE FILE)
+## Plugins currently enabled
 
-This file lives at `src/auth.config.ts`. **Every other auth-related file reads from here.** When the user wants to add a provider, change session duration, tweak password rules, or rename a route, they edit ONLY this file.
-
-```ts
-/**
- * ⭐ CENTRAL AUTH CONFIGURATION ⭐
- *
- * Single source of truth for all auth behavior.
- * Edit this file to:
- *   - Toggle providers (email/password, Google, GitHub, ...)
- *   - Change session/cookie durations
- *   - Adjust password policy
- *   - Rename auth routes
- *   - Configure protected route patterns
- *   - Customize email templates and sender
- *
- * After changing OAuth provider toggles, restart the dev server.
- */
-
-import { env } from "@/lib/env";
-
-export const authConfig = {
-  // ─────────────────────────────────────────────────────────────
-  // App identity
-  // ─────────────────────────────────────────────────────────────
-  appName: "YourApp",
-  baseUrl: env.BETTER_AUTH_URL,
-
-  // ─────────────────────────────────────────────────────────────
-  // Routes — change these to rename auth pages
-  // ─────────────────────────────────────────────────────────────
-  routes: {
-    signIn: "/sign-in",
-    signUp: "/sign-up",
-    forgotPassword: "/forgot-password",
-    resetPassword: "/reset-password",
-    verifyEmail: "/verify-email",
-    afterSignIn: "/dashboard",
-    afterSignOut: "/",
-    afterSignUp: "/dashboard",
-  },
-
-  // ─────────────────────────────────────────────────────────────
-  // Route protection — middleware reads these
-  // ─────────────────────────────────────────────────────────────
-  protection: {
-    // Routes that REQUIRE an authenticated session
-    protectedPrefixes: ["/dashboard", "/settings", "/account"],
-    // Auth pages — redirect to afterSignIn if already logged in
-    publicAuthPrefixes: ["/sign-in", "/sign-up", "/forgot-password", "/reset-password"],
-  },
-
-  // ─────────────────────────────────────────────────────────────
-  // Email & password
-  // ─────────────────────────────────────────────────────────────
-  emailAndPassword: {
-    enabled: true,
-    requireEmailVerification: false,        // flip to true for prod
-    minPasswordLength: 8,
-    maxPasswordLength: 128,
-    autoSignIn: true,                       // auto sign in after sign up
-    resetPasswordTokenExpiresIn: 60 * 60,   // 1 hour
-  },
-
-  // ─────────────────────────────────────────────────────────────
-  // OAuth providers — gated by env vars being present
-  // ─────────────────────────────────────────────────────────────
-  socialProviders: {
-    google: {
-      enabled: Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET),
-      clientId: env.GOOGLE_CLIENT_ID ?? "",
-      clientSecret: env.GOOGLE_CLIENT_SECRET ?? "",
-      scopes: ["email", "profile"],
-    },
-    github: {
-      enabled: Boolean(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET),
-      clientId: env.GITHUB_CLIENT_ID ?? "",
-      clientSecret: env.GITHUB_CLIENT_SECRET ?? "",
-      scopes: ["read:user", "user:email"],
-    },
-  },
-
-  // ─────────────────────────────────────────────────────────────
-  // Session & cookie behavior
-  // ─────────────────────────────────────────────────────────────
-  session: {
-    expiresIn: 60 * 60 * 24 * 30,           // 30 days
-    updateAge: 60 * 60 * 24,                // refresh once per day
-    cookieCache: {
-      enabled: true,
-      maxAge: 60 * 5,                       // 5 min — fast session reads
-    },
-  },
-
-  // ─────────────────────────────────────────────────────────────
-  // Cookies
-  // ─────────────────────────────────────────────────────────────
-  cookies: {
-    prefix: "yourapp",
-    secure: env.NODE_ENV === "production",
-    sameSite: "lax" as const,
-  },
-
-  // ─────────────────────────────────────────────────────────────
-  // Rate limiting
-  // ─────────────────────────────────────────────────────────────
-  rateLimit: {
-    enabled: env.NODE_ENV === "production",
-    window: 60,                             // seconds
-    max: 100,                               // requests per window
-  },
-
-  // ─────────────────────────────────────────────────────────────
-  // Email — used by sendResetPassword, sendVerificationEmail
-  // ─────────────────────────────────────────────────────────────
-  email: {
-    from: env.EMAIL_FROM ?? "noreply@example.com",
-    enabled: Boolean(env.RESEND_API_KEY && env.EMAIL_FROM),
-  },
-
-  // ─────────────────────────────────────────────────────────────
-  // Trusted origins for CORS / redirect safety
-  // ─────────────────────────────────────────────────────────────
-  trustedOrigins: [env.BETTER_AUTH_URL, env.NEXT_PUBLIC_APP_URL].filter(Boolean),
-} as const;
-
-export type AuthConfig = typeof authConfig;
-```
+| Plugin | Server import | Client import | DB tables/fields |
+|--------|--------------|---------------|-----------------|
+| twoFactor | `better-auth/plugins` | `twoFactorClient` | `twoFactor` table, `twoFactorEnabled` on user |
+| admin | `better-auth/plugins` | `adminClient` | `role`, `banned`, `banReason`, `banExpires` on user |
+| username | `better-auth/plugins` | `usernameClient` | `username`, `displayUsername` on user (disabled by default) |
+| bearer | `better-auth/plugins` | — (server-only) | None |
+| magicLink | `better-auth/plugins` | `magicLinkClient` | None |
+| emailOTP | `better-auth/plugins` | `emailOTPClient` | None |
+| passkey | `@better-auth/passkey` | `passkeyClient` from `@better-auth/passkey/client` | `passkey` table |
+| phoneNumber | `better-auth/plugins` | `phoneNumberClient` | `phoneNumber`, `phoneNumberVerified` on user |
+| multiSession | `better-auth/plugins` | `multiSessionClient` | None |
+| captcha | `better-auth/plugins` | — (invisible Turnstile widget) | None |
+| openAPI | `better-auth/plugins` | — (server-only) | None |
 
 ---
 
-## Step 4 — Drizzle setup
+## How to add a new feature
 
-### 4.1 — `src/db/schema/_shared.ts`
+### New protected route
+1. Add prefix to `authConfig.protection.protectedPrefixes`
+2. In the page's Server Component, call `await requireSession()`
 
+### New plugin
+1. Add toggle to `authConfig.plugins` in `auth.config.ts`
+2. Add server plugin to the `plugins` array in `auth.ts` (before `nextCookies()`)
+3. Add client plugin to the `plugins` array in `auth-client.ts`
+4. If plugin adds DB fields/tables, update `db/schema/auth.ts` and run `bun run db:push`
+5. If plugin needs UI, add component to `components/auth/` and render conditionally based on the config toggle
+
+### New email template
+1. Create in `src/lib/emails/` using React Email components
+2. Add send function in `src/lib/email.ts`
+3. Wire it in `auth.ts` in the relevant plugin's callback
+
+### New env var
+1. Add to `src/lib/env.ts` (server or client section + runtimeEnv mapping)
+2. Add to `.env.example`
+3. If it's a secret, add to `auth.config.server.ts`. If it's public, use directly in `auth.config.ts` via `process.env.NEXT_PUBLIC_*`
+
+---
+
+## How sign-in works (UX flow)
+
+The sign-in page renders `<AuthCard />` which contains tabs (Sign In / Sign Up) with Framer Motion animations.
+
+The sign-in form (`sign-in-form.tsx`) uses a **method picker** pattern:
+1. Social provider buttons always visible at top (Google, GitHub — if enabled)
+2. Below separator, a list of method buttons with icons: Email & password, Magic link, Email code, Phone number, Passkey
+3. Clicking a method slides the corresponding form in (animated with Framer Motion)
+4. "← All sign-in options" button to go back
+5. If only one method exists, it renders directly without the picker
+
+All forms include captcha (invisible Turnstile) when `plugins.captcha.enabled` is true.
+
+---
+
+## How the proxy works
+
+`src/proxy.ts` (Next.js 16 convention, replaces `middleware.ts`):
+- Checks session cookie **presence** (not validity) using `getSessionCookie()` with `cookiePrefix` from config
+- Redirects unauthenticated users from protected routes to sign-in (with `?callbackUrl=`)
+- Redirects authenticated users from auth pages to dashboard
+- **Never trust the proxy alone** — always re-validate with `requireSession()` in Server Components
+
+---
+
+## How captcha works
+
+- Component: `components/auth/captcha.tsx` — renders Turnstile in `interaction-only` mode (invisible)
+- Hook: `hooks/use-captcha.ts` — manages token state, provides `captchaHeaders` for fetch
+- Every auth form includes `<Captcha onVerify={setCaptchaToken} />` and passes `fetchOptions: { headers: captchaHeaders }` to Better Auth calls
+- Auto-enabled when `NEXT_PUBLIC_TURNSTILE_SITE_KEY` is set
+
+---
+
+## How email works
+
+- `src/lib/email.ts` — centralized sender using Resend + React Email `render()`
+- Three functions: `sendMagicLinkEmail`, `sendResetPasswordEmail`, `sendOTPEmail`
+- Templates in `src/lib/emails/` — inline CSS styles (email client compatible), zinc color palette, rounded buttons
+- If `RESEND_API_KEY` is missing, logs the HTML to console instead of crashing
+
+---
+
+## How phone number works
+
+- `sendOTP` in `auth.ts` is a **stub** — logs to console in development only
+- **You must implement your own SMS provider** (Twilio, Vonage, AWS SNS, etc.)
+- Dashboard component `phone-link.tsx` lets users link/change their phone number via a dialog
+
+---
+
+## Session user type
+
+`src/lib/types.ts` defines `SessionUser` which extends the base Better Auth user with plugin fields:
 ```ts
-import { timestamp } from "drizzle-orm/pg-core";
-
-export const timestamps = {
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true })
-    .notNull()
-    .defaultNow()
-    .$onUpdate(() => new Date()),
-};
-```
-
-### 4.2 — `src/db/schema/auth.ts`
-
-Better Auth requires four tables: `user`, `session`, `account`, `verification`. Use exactly these names (Better Auth conventions). Do NOT pluralize.
-
-```ts
-import { pgTable, text, timestamp, boolean } from "drizzle-orm/pg-core";
-
-export const user = pgTable("user", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  email: text("email").notNull().unique(),
-  emailVerified: boolean("email_verified").notNull().default(false),
-  image: text("image"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true })
-    .notNull()
-    .defaultNow()
-    .$onUpdate(() => new Date()),
-});
-
-export const session = pgTable("session", {
-  id: text("id").primaryKey(),
-  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-  token: text("token").notNull().unique(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-  ipAddress: text("ip_address"),
-  userAgent: text("user_agent"),
-  userId: text("user_id")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
-});
-
-export const account = pgTable("account", {
-  id: text("id").primaryKey(),
-  accountId: text("account_id").notNull(),
-  providerId: text("provider_id").notNull(),
-  userId: text("user_id")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
-  accessToken: text("access_token"),
-  refreshToken: text("refresh_token"),
-  idToken: text("id_token"),
-  accessTokenExpiresAt: timestamp("access_token_expires_at", { withTimezone: true }),
-  refreshTokenExpiresAt: timestamp("refresh_token_expires_at", { withTimezone: true }),
-  scope: text("scope"),
-  password: text("password"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
-
-export const verification = pgTable("verification", {
-  id: text("id").primaryKey(),
-  identifier: text("identifier").notNull(),
-  value: text("value").notNull(),
-  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
-
-export type User = typeof user.$inferSelect;
-export type NewUser = typeof user.$inferInsert;
-export type Session = typeof session.$inferSelect;
-```
-
-### 4.3 — `src/db/schema/index.ts`
-
-```ts
-export * from "./auth";
-// re-export future schemas here
-```
-
-### 4.4 — `src/db/index.ts`
-
-```ts
-import "server-only";
-import { drizzle } from "drizzle-orm/neon-http";
-import { neon } from "@neondatabase/serverless";
-import { env } from "@/lib/env";
-import * as schema from "./schema";
-
-const sql = neon(env.DATABASE_URL);
-
-export const db = drizzle({
-  client: sql,
-  schema,
-  casing: "snake_case",
-});
-
-export type DB = typeof db;
-```
-
-### 4.5 — `drizzle.config.ts` (project root)
-
-```ts
-import { defineConfig } from "drizzle-kit";
-import { env } from "@/lib/env";
-
-export default defineConfig({
-  schema: "./src/db/schema/index.ts",
-  out: "./drizzle",
-  dialect: "postgresql",
-  casing: "snake_case",
-  dbCredentials: {
-    url: env.DATABASE_URL_UNPOOLED ?? env.DATABASE_URL,
-  },
-  verbose: true,
-  strict: true,
-});
-```
-
-### 4.6 — `package.json` scripts
-
-```json
-{
-  "scripts": {
-    "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
-    "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio"
-  }
+interface SessionUser {
+  id: string;
+  name: string;
+  email: string;
+  image?: string | null;
+  twoFactorEnabled?: boolean;
+  phoneNumber?: string | null;
+  phoneNumberVerified?: boolean;
+  role?: string;
+  banned?: boolean;
 }
 ```
 
----
-
-## Step 5 — Better Auth server instance (`src/lib/auth.ts`)
-
-This file consumes `auth.config.ts` and produces the Better Auth instance. It MUST NOT contain hardcoded auth values — everything comes from the config.
-
-```ts
-import "server-only";
-import { betterAuth } from "better-auth";
-import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { nextCookies } from "better-auth/next-js";
-import { db } from "@/db";
-import { authConfig } from "@/auth.config";
-import { env } from "@/lib/env";
-
-// Build social providers map from config — only include enabled ones
-const socialProviders: Record<string, { clientId: string; clientSecret: string; scope?: string[] }> = {};
-
-if (authConfig.socialProviders.google.enabled) {
-  socialProviders.google = {
-    clientId: authConfig.socialProviders.google.clientId,
-    clientSecret: authConfig.socialProviders.google.clientSecret,
-    scope: authConfig.socialProviders.google.scopes,
-  };
-}
-
-if (authConfig.socialProviders.github.enabled) {
-  socialProviders.github = {
-    clientId: authConfig.socialProviders.github.clientId,
-    clientSecret: authConfig.socialProviders.github.clientSecret,
-    scope: authConfig.socialProviders.github.scopes,
-  };
-}
-
-export const auth = betterAuth({
-  appName: authConfig.appName,
-  baseURL: authConfig.baseUrl,
-  secret: env.BETTER_AUTH_SECRET,
-
-  database: drizzleAdapter(db, {
-    provider: "pg",
-  }),
-
-  emailAndPassword: {
-    enabled: authConfig.emailAndPassword.enabled,
-    requireEmailVerification: authConfig.emailAndPassword.requireEmailVerification,
-    minPasswordLength: authConfig.emailAndPassword.minPasswordLength,
-    maxPasswordLength: authConfig.emailAndPassword.maxPasswordLength,
-    autoSignIn: authConfig.emailAndPassword.autoSignIn,
-    sendResetPassword: authConfig.email.enabled
-      ? async ({ user, url }) => {
-          // TODO: wire to Resend / your email provider
-          // await sendEmail({ to: user.email, subject: "Reset your password", html: `<a href="${url}">Reset</a>` });
-          console.log(`[dev] Reset password for ${user.email}: ${url}`);
-        }
-      : undefined,
-  },
-
-  socialProviders,
-
-  session: {
-    expiresIn: authConfig.session.expiresIn,
-    updateAge: authConfig.session.updateAge,
-    cookieCache: authConfig.session.cookieCache,
-  },
-
-  advanced: {
-    cookiePrefix: authConfig.cookies.prefix,
-    useSecureCookies: authConfig.cookies.secure,
-    defaultCookieAttributes: {
-      sameSite: authConfig.cookies.sameSite,
-      secure: authConfig.cookies.secure,
-    },
-  },
-
-  rateLimit: authConfig.rateLimit.enabled
-    ? {
-        enabled: true,
-        window: authConfig.rateLimit.window,
-        max: authConfig.rateLimit.max,
-      }
-    : undefined,
-
-  trustedOrigins: authConfig.trustedOrigins,
-
-  // nextCookies plugin — must be LAST
-  plugins: [nextCookies()],
-});
-
-export type Auth = typeof auth;
-export type Session = typeof auth.$Infer.Session;
-```
-
----
-
-## Step 6 — Better Auth React client (`src/lib/auth-client.ts`)
-
-```ts
-"use client";
-
-import { createAuthClient } from "better-auth/react";
-import { authConfig } from "@/auth.config";
-
-export const authClient = createAuthClient({
-  baseURL: authConfig.baseUrl,
-});
-
-export const {
-  signIn,
-  signUp,
-  signOut,
-  useSession,
-  getSession,
-  forgetPassword,
-  resetPassword,
-} = authClient;
-```
-
----
-
-## Step 7 — API route handler (`src/app/api/auth/[...all]/route.ts`)
-
-```ts
-import { auth } from "@/lib/auth";
-import { toNextJsHandler } from "better-auth/next-js";
-
-export const { GET, POST } = toNextJsHandler(auth.handler);
-```
-
----
-
-## Step 8 — Server-side helpers (`src/lib/auth-helpers.ts`)
-
-```ts
-import "server-only";
-import { headers } from "next/headers";
-import { redirect } from "next/navigation";
-import { cache } from "react";
-import { auth } from "@/lib/auth";
-import { authConfig } from "@/auth.config";
-
-/** Cached per-request session lookup. Safe to call repeatedly in RSC. */
-export const getSession = cache(async () => {
-  return auth.api.getSession({ headers: await headers() });
-});
-
-/** Use in protected Server Components / Actions. Redirects if no session. */
-export async function requireSession() {
-  const session = await getSession();
-  if (!session) redirect(authConfig.routes.signIn);
-  return session;
-}
-
-/** Use on auth pages to bounce already-logged-in users away. */
-export async function requireGuest() {
-  const session = await getSession();
-  if (session) redirect(authConfig.routes.afterSignIn);
-}
-```
-
----
-
-## Step 9 — Middleware (`src/middleware.ts`)
-
-The middleware reads protection rules from `auth.config.ts`. To protect a new route, add its prefix to `authConfig.protection.protectedPrefixes` — no middleware edits required.
-
-```ts
-import { NextRequest, NextResponse } from "next/server";
-import { getSessionCookie } from "better-auth/cookies";
-import { authConfig } from "@/auth.config";
-
-export async function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl;
-  const sessionCookie = getSessionCookie(request);
-
-  const isProtected = authConfig.protection.protectedPrefixes.some((p) => pathname.startsWith(p));
-  const isAuthPage = authConfig.protection.publicAuthPrefixes.some((p) => pathname.startsWith(p));
-
-  // Logged-in user hitting an auth page → bounce to dashboard
-  if (sessionCookie && isAuthPage) {
-    return NextResponse.redirect(new URL(authConfig.routes.afterSignIn, request.url));
-  }
-
-  // Not-logged-in user hitting a protected page → bounce to sign-in
-  if (!sessionCookie && isProtected) {
-    const url = new URL(authConfig.routes.signIn, request.url);
-    url.searchParams.set("callbackUrl", pathname);
-    return NextResponse.redirect(url);
-  }
-
-  return NextResponse.next();
-}
-
-export const config = {
-  matcher: ["/((?!api|_next/static|_next/image|favicon.ico).*)"],
-};
-```
-
-> ⚠️ Note: the middleware checks for cookie *presence*, not session validity. Always re-validate inside Server Components / Actions using `requireSession()`.
-
----
-
-## Step 10 — UI components
-
-Build minimal but production-quality forms in `src/components/auth/`. Use the project's existing design system (Tailwind + whatever component library is in use). Forms must:
-
-- Use Server Actions OR `authClient` from the client — pick one per project, document the choice
-- Read all routes from `authConfig.routes`
-- Show inline error messages from Better Auth responses
-- Disable submit button while pending
-- Honor `?callbackUrl=` from middleware redirects
-
-Required components:
-- `sign-in-form.tsx` — email/password + social provider buttons (rendered conditionally based on `authConfig.socialProviders.*.enabled`)
-- `sign-up-form.tsx`
-- `sign-out-button.tsx`
-
----
-
-## Step 11 — First-run workflow
-
-After scaffolding, run these in order:
-
-1. Copy `.env.example` → `.env.local` and fill in real values
-2. Generate `BETTER_AUTH_SECRET`: `openssl rand -base64 32`
-3. `<pkg> run db:generate` — creates initial migration in `./drizzle`
-4. Review the generated SQL — sanity check
-5. `<pkg> run db:migrate` — apply to Neon
-6. `<pkg> run dev`
-7. Visit `/sign-up`, create an account, verify the protected `/dashboard` route works
-
----
-
-## Common modifications — where they go
-
-| Task | File to edit |
-|------|--------------|
-| Add a new protected route | `auth.config.ts` → `protection.protectedPrefixes` |
-| Rename `/sign-in` to `/login` | `auth.config.ts` → `routes.signIn` (then move the page folder) |
-| Enable Google OAuth | Add `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` to `.env.local`, restart |
-| Increase session lifetime | `auth.config.ts` → `session.expiresIn` |
-| Require email verification | `auth.config.ts` → `emailAndPassword.requireEmailVerification = true` |
-| Add a database column | Edit `src/db/schema/*.ts` → `db:generate` → review → `db:migrate` |
-| Add a new auth-protected API endpoint | Use `requireSession()` from `auth-helpers.ts` |
-| Tighten password rules | `auth.config.ts` → `emailAndPassword.minPasswordLength` |
+Use this instead of `Record<string, unknown>` when accessing session user data in client components.
 
 ---
 
 ## Anti-patterns — do NOT do these
 
-- ❌ `import { db } from "@/db"` in a Client Component
-- ❌ Hardcoding `"/sign-in"` in a redirect — always import from `authConfig.routes`
-- ❌ Reading `process.env.X` directly — go through `env` from `@/lib/env`
-- ❌ `drizzle-kit push` against a production database
-- ❌ Putting OAuth secrets in `auth.config.ts` directly (they come from `env`)
-- ❌ Pluralizing the auth tables (`users` instead of `user`) — Better Auth expects singular
-- ❌ Manually typing `interface User { ... }` — use `typeof user.$inferSelect`
-- ❌ Calling `auth.api.getSession` without `await headers()` — it needs the request headers
-- ❌ Putting `nextCookies()` plugin anywhere except last in the plugins array
-- ❌ Trusting middleware as the only protection — always re-check in Server Components
+- Importing `env.ts` in `auth.config.ts` (causes server vars to leak to client)
+- Importing `db` or `auth` in a Client Component (missing `"server-only"`)
+- Hardcoding route strings — use `authConfig.routes`
+- Reading `process.env.X` directly — use `env` from `@/lib/env`
+- Writing `interface User { ... }` by hand — use `typeof user.$inferSelect` or `SessionUser`
+- Pluralizing table names (`users` instead of `user`)
+- Putting `nextCookies()` anywhere except last in plugins array
+- Running `drizzle-kit push` in production — use `generate` + `migrate`
+- Deriving social provider `enabled` from server env vars in `auth.config.ts` (hydration mismatch)
+- Trusting the proxy as the only protection — always re-check with `requireSession()` in Server Components
 
 ---
 
-## Verification checklist
+## Database commands
 
-Before declaring the starter complete, verify:
-
-- [ ] `<pkg> run build` succeeds with zero TS errors
-- [ ] `.env.example` lists every var used in `env.ts`
-- [ ] Sign-up → auto sign-in → land on `/dashboard` works
-- [ ] Direct visit to `/dashboard` while logged out redirects to `/sign-in?callbackUrl=/dashboard`
-- [ ] Visit to `/sign-in` while logged in redirects to `/dashboard`
-- [ ] Sign-out clears the cookie and redirects to `/`
-- [ ] Disabling Google in `.env.local` (remove vars) hides the Google button on next restart
-- [ ] Renaming `routes.signIn` in `auth.config.ts` + moving the page folder updates all redirects
-- [ ] Initial migration in `./drizzle` is committed
-- [ ] No `any`, no `@ts-ignore`, no `process.env.X` outside `env.ts`
+```bash
+bun run db:push      # Dev only: push schema directly to Neon
+bun run db:generate  # Generate SQL migration files in ./drizzle
+bun run db:migrate   # Apply pending migrations
+bun run db:studio    # Open Drizzle Studio (visual DB browser)
+```
 
 ---
 
 ## When in doubt
 
-- For Better Auth API specifics, consult the latest docs at https://www.better-auth.com/docs
-- For Drizzle adapter table conventions, follow Better Auth's expected schema exactly
-- For Neon-specific behavior (HTTP vs WebSocket driver), default to `neon-http` unless you need transactions
-- If a decision isn't covered here, prefer the option that keeps `auth.config.ts` as the single source of truth
+- Better Auth docs: https://www.better-auth.com/docs
+- Table names must be singular (Better Auth convention)
+- Default to `neon-http` driver unless you need transactions
+- Keep `auth.config.ts` as the single source of truth
+- If a plugin toggle is off, its UI, server code, and client code should all be skipped automatically via conditional checks on `authConfig.plugins.xxx.enabled`
