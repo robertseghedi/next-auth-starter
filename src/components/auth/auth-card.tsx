@@ -25,7 +25,7 @@ const tabContent = {
   initial: { opacity: 0, y: 8 },
   animate: { opacity: 1, y: 0 },
   exit: { opacity: 0, y: -8 },
-  transition: { duration: 0.2, ease: "easeInOut" },
+  transition: { duration: 0.2, ease: "easeInOut" as const },
 };
 
 export function AuthCard() {
@@ -52,7 +52,7 @@ export function AuthCard() {
         className="relative z-10 w-full max-w-[420px]"
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.35, ease: "easeOut" }}
+        transition={{ duration: 0.35, ease: "easeOut" as const }}
       >
         <Tabs value={activeTab} onValueChange={handleTabChange}>
           <TabsList className="mx-auto mb-4">
