@@ -149,7 +149,7 @@ export function PhoneLink() {
                       {currentPhone ? "Change phone number" : "Link phone number"}
                     </DialogTitle>
                     <DialogDescription>
-                      Enter your phone number. We'll send a verification code
+                      Enter your phone number. We&apos;ll send a verification code
                       via SMS.
                     </DialogDescription>
                   </DialogHeader>

@@ -33,14 +33,14 @@ export function MagicLinkEmail({ url, appName }: MagicLinkEmailProps) {
               Sign in
             </Link>
             <Text style={textMuted}>
-              If the button doesn't work, copy and paste this URL into your
+              If the button doesn&apos;t work, copy and paste this URL into your
               browser:
             </Text>
             <Text style={link}>{url}</Text>
           </Section>
           <Hr style={hr} />
           <Text style={footer}>
-            If you didn't request this email, you can safely ignore it.
+            If you didn&apos;t request this email, you can safely ignore it.
           </Text>
         </Container>
       </Body>

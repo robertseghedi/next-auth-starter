@@ -1,12 +1,23 @@
 ![Next.js Auth Starter](public/nextjs-auth-starter.png)
 
+<div align="center">
+
 # Next.js Auth Starter
 
 Production-ready authentication starter built with **Next.js 16**, **Better Auth**, **Drizzle ORM**, and **Neon Postgres**.
-
 Everything is controlled from one file: [`src/auth.config.ts`](src/auth.config.ts).
 
+![Next.js](https://img.shields.io/badge/Next.js-16-000?logo=nextdotjs)
+![TypeScript](https://img.shields.io/badge/TypeScript-Strict-3178C6?logo=typescript&logoColor=fff)
+![Better Auth](https://img.shields.io/badge/Better_Auth-latest-8B5CF6)
+![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4-06B6D4?logo=tailwindcss&logoColor=fff)
+![shadcn/ui](https://img.shields.io/badge/shadcn%2Fui-Components-000?logo=shadcnui)
+![ESLint](https://img.shields.io/badge/ESLint-Zero_warnings-4B32C3?logo=eslint&logoColor=fff)
+![Playwright](https://img.shields.io/badge/Playwright-E2E-2EAD33?logo=playwright&logoColor=fff)
+
 ---
+
+</div>
 
 ## Stack
 

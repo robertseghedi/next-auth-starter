@@ -142,7 +142,7 @@ const plugins = [
             // ⚠️ REPLACE THIS with your SMS provider integration.
             // This console.log is a placeholder — no SMS is actually sent.
             if (process.env.NODE_ENV === "development") {
-              console.log(
+              console.warn(
                 `[phone] OTP for ${phone}: ${code} — implement your SMS provider in auth.ts`,
               );
             }

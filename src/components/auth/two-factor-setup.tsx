@@ -175,7 +175,7 @@ export function TwoFactorSetup() {
                     autoFocus
                     onKeyDown={(e) => {
                       if (e.key === "Enter" && password) {
-                        is2FAEnabled ? handleDisable() : handleEnable();
+                        if (is2FAEnabled) { handleDisable(); } else { handleEnable(); }
                       }
                     }}
                   />
@@ -226,7 +226,7 @@ export function TwoFactorSetup() {
 
                 <details className="w-full">
                   <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground transition-colors">
-                    Can't scan? Copy setup key
+                    Can&apos;t scan? Copy setup key
                   </summary>
                   <code className="mt-2 block break-all rounded-lg bg-muted p-3 text-xs">
                     {totpURI}
@@ -275,7 +275,7 @@ export function TwoFactorSetup() {
                 </Button>
 
                 <Button onClick={() => setStep("verify")}>
-                  I've saved them
+                  I&apos;ve saved them
                   <ArrowRight className="size-4" />
                 </Button>
               </motion.div>
@@ -345,7 +345,7 @@ export function TwoFactorSetup() {
                 <div className="text-center">
                   <p className="text-sm font-medium">2FA is now active</p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    You'll need a code from your authenticator app when signing
+                    You&apos;ll need a code from your authenticator app when signing
                     in.
                   </p>
                 </div>

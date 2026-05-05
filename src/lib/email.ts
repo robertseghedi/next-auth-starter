@@ -29,13 +29,13 @@ async function send({ to, subject, react }: SendOptions) {
 
   if (!resend) {
     console.warn("[email] Resend not configured (RESEND_API_KEY missing).");
-    console.log("[email] To:", to);
-    console.log("[email] Subject:", subject);
-    console.log("[email] HTML:", html);
+    console.warn("[email] To:", to);
+    console.warn("[email] Subject:", subject);
+    console.warn("[email] HTML:", html);
     return;
   }
 
-  console.log(`[email] Sending to ${to} — "${subject}"`);
+  console.warn(`[email] Sending to ${to} — "${subject}"`);
 
   const { data, error } = await resend.emails.send({
     from: authServerConfig.email.from,
@@ -49,7 +49,7 @@ async function send({ to, subject, react }: SendOptions) {
     throw new Error(`Failed to send email: ${error.message}`);
   }
 
-  console.log("[email] Sent — id:", data?.id);
+  console.warn("[email] Sent — id:", data?.id);
   return data;
 }
 

@@ -33,15 +33,15 @@ export function ResetPasswordEmail({ url, appName }: ResetPasswordEmailProps) {
               Reset password
             </Link>
             <Text style={textMuted}>
-              If the button doesn't work, copy and paste this URL into your
+              If the button doesn&apos;t work, copy and paste this URL into your
               browser:
             </Text>
             <Text style={link}>{url}</Text>
           </Section>
           <Hr style={hr} />
           <Text style={footer}>
-            If you didn't request a password reset, you can safely ignore this
-            email. Your password won't be changed.
+            If you didn&apos;t request a password reset, you can safely ignore this
+            email. Your password won&apos;t be changed.
           </Text>
         </Container>
       </Body>

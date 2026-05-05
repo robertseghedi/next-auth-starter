@@ -54,7 +54,7 @@ export function OTPEmail({ otp, type, appName }: OTPEmailProps) {
           </Section>
           <Hr style={hr} />
           <Text style={footer}>
-            If you didn't request this code, you can safely ignore this email.
+            If you didn&apos;t request this code, you can safely ignore this email.
           </Text>
         </Container>
       </Body>
